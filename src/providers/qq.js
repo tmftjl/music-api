@@ -39,6 +39,25 @@ function getGuid() {
     .toUpperCase();
 }
 
+function randomHex(length) {
+  let value = "";
+  while (value.length < length) value += Math.floor(Math.random() * 16).toString(16);
+  return value.slice(0, length);
+}
+
+function cookieMapFromString(cookie) {
+  const map = new Map();
+  String(cookie || "")
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .forEach((pair) => {
+      const [name, value = ""] = pair.split("=");
+      if (name && value) map.set(name, pair);
+    });
+  return map;
+}
+
 function parsePtuiCallback(text) {
   const match = text.match(/ptuiCB\((.*)\)/);
   if (!match) return null;
@@ -107,17 +126,59 @@ function joinUrl(domain, path) {
 }
 
 async function createLogin(sessionId) {
+  const cookieMap = new Map();
+  const xloginUrl =
+    "https://xui.ptlogin2.qq.com/cgi-bin/xlogin?appid=716027609&daid=383&style=33" +
+    "&login_text=%E7%99%BB%E5%BD%95&hide_title_bar=1&hide_border=1&target=self" +
+    "&s_url=https%3A%2F%2Fgraph.qq.com%2Foauth2.0%2Flogin_jump&pt_3rd_aid=100497308";
+  const xlogin = await fetch(xloginUrl, {
+    headers: {
+      "User-Agent": USER_AGENT,
+      Referer: "https://graph.qq.com/",
+    },
+  });
+  addSetCookies(cookieMap, xlogin);
+
+  const loginSig = cookieString(cookieMap).match(/pt_login_sig=([^;]+)/)?.[1] || "";
   const url =
-    "https://ssl.ptlogin2.qq.com/ptqrshow?appid=716027609&e=2&l=M&s=3&d=72&v=4&t=0.9698127522807933&daid=383&pt_3rd_aid=100497308&u1=https%3A%2F%2Fgraph.qq.com%2Foauth2.0%2Flogin_jump";
-  const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+    "https://ssl.ptlogin2.qq.com/ptqrshow?" +
+    new URLSearchParams({
+      appid: "716027609",
+      e: "2",
+      l: "M",
+      s: "3",
+      d: "72",
+      v: "4",
+      t: String(Math.random()),
+      daid: "383",
+      pt_3rd_aid: "100497308",
+      u1: "https://graph.qq.com/oauth2.0/login_jump",
+    }).toString();
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": USER_AGENT,
+      Referer: "https://xui.ptlogin2.qq.com/",
+      Cookie: cookieString(cookieMap),
+    },
+  });
+  addSetCookies(cookieMap, response);
   const buffer = Buffer.from(await response.arrayBuffer());
-  const setCookie = getSetCookies(response).join("; ");
+  const setCookie = cookieString(cookieMap);
   const qrsig = setCookie.match(/qrsig=([^;]+)/)?.[1];
   if (!qrsig) throw new Error("Failed to get QQ qrsig");
 
   const ptqrtoken = hash33(qrsig);
   return {
-    session: { provider: "qq", sessionId, qrsig, ptqrtoken, createdAt: Date.now() },
+    session: {
+      provider: "qq",
+      sessionId,
+      qrsig,
+      ptqrtoken,
+      loginSig,
+      ptCookie: setCookie,
+      o1vId: randomHex(32),
+      createdAt: Date.now(),
+    },
     response: {
       provider: "qq",
       sessionId,
@@ -129,15 +190,21 @@ async function createLogin(sessionId) {
 }
 
 async function pollLogin(session) {
+  const elapsed = Math.max(Date.now() - Number(session.createdAt || Date.now()), 0);
   const pollUrl =
     `https://ssl.ptlogin2.qq.com/ptqrlogin?u1=https%3A%2F%2Fgraph.qq.com%2Foauth2.0%2Flogin_jump` +
     `&ptqrtoken=${session.ptqrtoken}&ptredirect=0&h=1&t=1&g=1&from_ui=1&ptlang=2052` +
-    `&action=0-0-${Date.now()}&js_ver=23111510&js_type=1` +
-    `&login_sig=du-YS1h8*0GqVqcrru0pXkpwVg2DYw-DtbFulJ62IgPf6vfiJe*4ONVrYc5hMUNE` +
-    `&pt_uistyle=40&aid=716027609&daid=383&pt_3rd_aid=100497308&o1vId=3674fc47871e9c407d8838690b355408&pt_js_version=v1.48.1`;
+    `&action=0-0-${elapsed}&js_ver=23111510&js_type=1` +
+    `&login_sig=${encodeURIComponent(session.loginSig || "")}` +
+    `&pt_uistyle=40&aid=716027609&daid=383&pt_3rd_aid=100497308&o1vId=${session.o1vId || randomHex(32)}&pt_js_version=v1.48.1`;
 
-  const cookieMap = new Map();
-  const { response, text } = await fetchText(pollUrl, { headers: { Cookie: `qrsig=${session.qrsig}` } });
+  const cookieMap = cookieMapFromString(session.ptCookie || `qrsig=${session.qrsig}`);
+  const { response, text } = await fetchText(pollUrl, {
+    headers: {
+      Cookie: cookieString(cookieMap),
+      Referer: "https://xui.ptlogin2.qq.com/",
+    },
+  });
   addSetCookies(cookieMap, response);
 
   const callback = parsePtuiCallback(text);
