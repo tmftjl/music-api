@@ -334,19 +334,17 @@ async function play({ song, quality, session }) {
     throw err;
   }
   const songmid = song.songmid || song.id;
-  const mediaId = song.mediaId || songmid;
   const q = normalizeQuality(quality);
   const fileType = QUALITY_MAP[q];
-  const guid = String(Math.floor(Math.random() * 10000000000));
   const uin = extractUin(session.cookie);
-  const filename = `${fileType.prefix}${mediaId}${fileType.suffix}`;
+  const filename = `${fileType.prefix}${songmid}${songmid}${fileType.suffix}`;
   const payload = {
-    req_0: {
+    req_1: {
       module: "vkey.GetVkeyServer",
       method: "CgiGetVkey",
       param: {
         filename: [filename],
-        guid,
+        guid: "10000",
         songmid: [songmid],
         songtype: [0],
         uin,
@@ -357,39 +355,27 @@ async function play({ song, quality, session }) {
     loginUin: uin,
     comm: { uin, format: "json", ct: 24, cv: 0 },
   };
-  const params = new URLSearchParams({
-    g_tk: "1124214810",
-    loginUin: uin,
-    hostUin: "0",
-    inCharset: "utf8",
-    outCharset: "utf-8",
-    notice: "0",
-    platform: "yqq.json",
-    needNewCode: "0",
-    format: "json",
-    sign: "zzannc1o6o9b4i971602f3554385022046ab796512b7012",
-    data: JSON.stringify(payload),
-  });
-  const { data } = await fetchJson(`https://u.y.qq.com/cgi-bin/musicu.fcg?${params.toString()}`, {
+  const { data } = await fetchJson("https://u.y.qq.com/cgi-bin/musicu.fcg", {
+    method: "POST",
+    body: JSON.stringify(payload),
     headers: {
-      referer: "https://y.qq.com/portal/player.html",
-      host: "u.y.qq.com",
+      Accept: "application/json, text/plain, */*",
+      "Content-Type": "application/json;charset=UTF-8",
+      Referer: "https://y.qq.com/",
+      Origin: "https://y.qq.com",
       Cookie: session.cookie,
     },
   });
-  const domain = pickDomain(data?.req_0?.data?.sip);
-  const info = Array.isArray(data?.req_0?.data?.midurlinfo) ? data.req_0.data.midurlinfo[0] : {};
-  const url = info?.purl
-    ? joinUrl(domain, info.purl)
-    : info?.filename && info?.vkey
-      ? `${joinUrl(domain, info.filename)}?vkey=${info.vkey}&guid=${guid}&fromtag=66`
-      : "";
+  const domain = data?.req_1?.data?.sip?.[0] || "";
+  const info = data?.req_1?.data?.midurlinfo?.[0] || {};
+  const url = info?.purl ? joinUrl(domain, info.purl) : "";
+  const message = info?.msg || data?.req_1?.data?.msg || data?.req_1?.msg || data?.msg;
   return {
     provider: "qq",
     song,
     quality: q,
     url,
-    error: url ? undefined : "No playable QQ URL returned.",
+    error: url ? undefined : `No playable QQ URL returned.${message ? ` ${message}` : ""}`,
     raw: data,
   };
 }
