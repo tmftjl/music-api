@@ -7,6 +7,8 @@
 
 默认地址：`http://localhost:3000`
 
+登录状态会持久化到 `data/sessions.json`。Docker Compose 默认把宿主机 `./data` 挂载到容器 `/app/data`，所以容器重启后登录态还在。
+
 ## 本地启动
 
 ```bash
@@ -19,6 +21,12 @@ npm run dev
 ```bash
 docker build -t music-api .
 docker run -d --name music-api -p 3000:3000 music-api
+```
+
+如果用 `docker run` 且需要保留登录状态，挂载 data 目录：
+
+```bash
+docker run -d --name music-api -p 3000:3000 -v ${PWD}/data:/app/data music-api
 ```
 
 或使用 Docker Compose：
@@ -73,6 +81,8 @@ curl "http://localhost:3000/api/search?provider=netease&key=周杰伦&limit=10"
 - `songs[].name` / `singer` / `album`
 
 ## 点歌 API
+
+点歌需要当前 `provider + sessionId` 已经登录。未登录用户会返回 `401`，不会共用其他用户的登录态。
 
 推荐用搜索结果选择第几首：
 

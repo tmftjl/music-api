@@ -5,6 +5,7 @@ const morgan = require("morgan");
 require("dotenv").config();
 
 const { createId, numberParam } = require("./utils");
+const { SESSION_FILE, loadSessions, saveSessions } = require("./session-store");
 const qq = require("./providers/qq");
 const netease = require("./providers/netease");
 
@@ -17,7 +18,7 @@ app.use(morgan("dev"));
 
 const PORT = Number(process.env.PORT || 3000);
 const providers = { qq, netease };
-const sessions = new Map();
+const sessions = loadSessions();
 const searches = new Map();
 
 function getProvider(name) {
@@ -41,6 +42,17 @@ function getSession(req, providerName) {
 
 function setSession(providerName, sessionId, session) {
   sessions.set(`${providerName}:${sessionId}`, session);
+  saveSessions(sessions);
+}
+
+function requireLoggedSession(providerName, sessionId, session) {
+  if (session?.cookie) return;
+
+  const err = new Error(
+    `Not logged in for ${providerName}. Call /api/login/qr?provider=${providerName}&sessionId=${sessionId} first.`
+  );
+  err.status = 401;
+  throw err;
 }
 
 function normalizePlaySong(req, provider, search) {
@@ -172,6 +184,14 @@ app.get(["/api/play", "/play"], async (req, res, next) => {
     if (!provider) provider = getProvider("qq");
 
     const { sessionId, session } = getSession(req, provider.name);
+    requireLoggedSession(provider.name, sessionId, session);
+
+    if (search && (search.provider !== provider.name || search.sessionId !== sessionId)) {
+      const err = new Error("searchId does not belong to this provider/sessionId.");
+      err.status = 403;
+      throw err;
+    }
+
     const song = normalizePlaySong(req, provider, search);
     const result = await provider.play({
       song,
@@ -199,4 +219,5 @@ app.use((err, req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`music-api listening on http://localhost:${PORT}`);
+  console.log(`session store: ${SESSION_FILE}`);
 });
