@@ -334,10 +334,11 @@ async function play({ song, quality, session }) {
     throw err;
   }
   const songmid = song.songmid || song.id;
+  const mediaId = song.mediaId || songmid;
   const q = normalizeQuality(quality);
   const fileType = QUALITY_MAP[q];
   const uin = extractUin(session.cookie);
-  const filename = `${fileType.prefix}${songmid}${songmid}${fileType.suffix}`;
+  const filename = `${fileType.prefix}${mediaId}${fileType.suffix}`;
   const payload = {
     req_1: {
       module: "vkey.GetVkeyServer",
@@ -375,7 +376,9 @@ async function play({ song, quality, session }) {
     song,
     quality: q,
     url,
-    error: url ? undefined : `No playable QQ URL returned.${message ? ` ${message}` : ""}`,
+    error: url
+      ? undefined
+      : `No playable QQ URL returned.${message ? ` ${message}` : ""} filename=${filename} result=${info?.result ?? ""}`,
     raw: data,
   };
 }
