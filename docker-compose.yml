@@ -7,7 +7,5 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATA_DIR: /app/data
-    volumes:
-      - ./data:/app/data
+      TOKEN_SECRET: ${TOKEN_SECRET:-change-me}
     restart: unless-stopped

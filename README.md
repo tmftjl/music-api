@@ -7,7 +7,9 @@
 
 默认地址：`http://localhost:3000`
 
-登录状态会持久化到 `data/sessions.json`。Docker Compose 默认把宿主机 `./data` 挂载到容器 `/app/data`，所以容器重启后登录态还在。
+music-api 不保存调用方用户关系和登录态。登录成功后会返回 `auth`，由调用方自己保存，后续搜索和点歌都带上这个 `auth`。
+
+`loginToken` 和 `auth` 使用 `TOKEN_SECRET` 签名；修改 `TOKEN_SECRET` 后旧 token 会失效。
 
 ## 本地启动
 
@@ -21,12 +23,6 @@ npm run dev
 ```bash
 docker build -t music-api .
 docker run -d --name music-api -p 3000:3000 music-api
-```
-
-如果用 `docker run` 且需要保留登录状态，挂载 data 目录：
-
-```bash
-docker run -d --name music-api -p 3000:3000 -v ${PWD}/data:/app/data music-api
 ```
 
 或使用 Docker Compose：
@@ -44,7 +40,8 @@ curl "http://localhost:3000/health"
 ## 通用参数
 
 - `provider`：音乐源，支持 `qq`、`netease`，默认 `qq`
-- `sessionId`：登录会话 ID，必传。建议用机器人用户 ID；也可以通过 `x-session-id` 请求头传入
+- `loginToken`：登录二维码临时 token。获取二维码后由调用方保存，轮询登录时传回
+- `auth`：登录成功后的 token。由调用方保存，搜索、点歌必传；也可以通过 `x-music-auth` 请求头传入
 - `limit` / `count`：搜索数量，最大 50
 - `searchId` + `index`：用搜索结果里的第几首来点歌
 
@@ -53,24 +50,26 @@ curl "http://localhost:3000/health"
 获取二维码：
 
 ```bash
-curl "http://localhost:3000/api/login/qr?provider=qq&sessionId=用户ID"
-curl "http://localhost:3000/api/login/qr?provider=netease&sessionId=用户ID"
+curl "http://localhost:3000/api/login/qr?provider=qq"
+curl "http://localhost:3000/api/login/qr?provider=netease"
 ```
 
-返回 `sessionId` 和 `image`，`image` 是 base64 二维码。
+返回 `loginToken` 和 `image`，`image` 是 base64 二维码。
 
 轮询登录：
 
 ```bash
-curl "http://localhost:3000/api/login/poll?provider=qq&sessionId=xxx"
-curl "http://localhost:3000/api/login/poll?provider=netease&sessionId=xxx"
+curl "http://localhost:3000/api/login/poll?provider=qq&loginToken=xxx"
+curl "http://localhost:3000/api/login/poll?provider=netease&loginToken=xxx"
 ```
+
+扫码成功后返回 `auth`。调用方保存这个 `auth`，后续搜索和点歌使用它。
 
 ## 搜索 API
 
 ```bash
-curl "http://localhost:3000/api/search?provider=qq&key=周杰伦&limit=10&sessionId=用户ID"
-curl "http://localhost:3000/api/search?provider=netease&key=周杰伦&limit=10&sessionId=用户ID"
+curl "http://localhost:3000/api/search?provider=qq&key=周杰伦&limit=10&auth=xxx"
+curl "http://localhost:3000/api/search?provider=netease&key=周杰伦&limit=10&auth=xxx"
 ```
 
 返回：
@@ -82,19 +81,19 @@ curl "http://localhost:3000/api/search?provider=netease&key=周杰伦&limit=10&s
 
 ## 点歌 API
 
-点歌需要当前 `provider + sessionId` 已经登录。未登录用户会返回 `401`，不会共用其他用户的登录态。
+点歌需要传入当前音乐源登录后返回的 `auth`。未登录会返回 `401`。
 
 推荐用搜索结果选择第几首：
 
 ```bash
-curl "http://localhost:3000/api/play?searchId=搜索ID&index=0&quality=standard&sessionId=用户ID"
+curl "http://localhost:3000/api/play?searchId=搜索ID&index=0&quality=standard&auth=xxx"
 ```
 
 也可以直接传 ID：
 
 ```bash
-curl "http://localhost:3000/api/play?provider=qq&songmid=QQ歌曲songmid&mediaId=mediaId&sessionId=xxx&quality=128"
-curl "http://localhost:3000/api/play?provider=netease&id=网易云歌曲id&sessionId=xxx&quality=exhigh"
+curl "http://localhost:3000/api/play?provider=qq&songmid=QQ歌曲songmid&mediaId=mediaId&auth=xxx&quality=128"
+curl "http://localhost:3000/api/play?provider=netease&id=网易云歌曲id&auth=xxx&quality=exhigh"
 ```
 
 音质参数：
@@ -123,7 +122,7 @@ module.exports = {
 
 ## 注意
 
-- 没有默认会话；缺少 `sessionId` 会返回 `400`。
-- 登录态持久化在 `data/sessions.json`；搜索结果只保存在内存里，服务重启会丢。
+- music-api 不保存登录态；调用方需要保存 `loginToken` 和登录成功后的 `auth`。
+- 搜索结果只保存在内存里，服务重启后 `searchId` 会丢；可以重新搜索，或者直接用歌曲 ID 点歌。
 - 播放链接可能因版权、会员、地区或接口变化为空。
 - 这些接口是模拟网页/客户端请求，适合学习和自用，不建议公开商业服务。

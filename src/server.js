@@ -4,8 +4,8 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 require("dotenv").config();
 
-const { numberParam } = require("./utils");
-const { SESSION_FILE, loadSessions, saveSessions } = require("./session-store");
+const { createId, numberParam } = require("./utils");
+const { decodeToken, encodeToken, tokenHash } = require("./token");
 const qq = require("./providers/qq");
 const netease = require("./providers/netease");
 
@@ -18,7 +18,6 @@ app.use(morgan("dev"));
 
 const PORT = Number(process.env.PORT || 3000);
 const providers = { qq, netease };
-const sessions = loadSessions();
 const searches = new Map();
 
 function getProvider(name) {
@@ -32,34 +31,43 @@ function getProvider(name) {
   return provider;
 }
 
-function getSession(req, providerName) {
-  const rawSessionId = req.query.sessionId || req.header("x-session-id");
-  const sessionId = String(rawSessionId || "").trim();
-  if (!sessionId) {
-    const err = new Error("Missing sessionId. Pass sessionId query parameter or x-session-id header.");
+function publicLoginResponse(result) {
+  const { sessionId, cookie, ...response } = result.response;
+  return response;
+}
+
+function getLoginSession(req, providerName) {
+  const loginToken = String(req.query.loginToken || req.header("x-login-token") || "").trim();
+  if (!loginToken) {
+    const err = new Error("Missing loginToken. Call /api/login/qr first.");
     err.status = 400;
     throw err;
   }
 
-  return {
-    sessionId,
-    session: sessions.get(`${providerName}:${sessionId}`),
-  };
+  const session = decodeToken(loginToken, "login");
+  if (providerName && session.provider !== providerName) {
+    const err = new Error("loginToken does not belong to this provider.");
+    err.status = 403;
+    throw err;
+  }
+  return session;
 }
 
-function setSession(providerName, sessionId, session) {
-  sessions.set(`${providerName}:${sessionId}`, session);
-  saveSessions(sessions);
-}
+function getAuthSession(req, providerName) {
+  const auth = String(req.query.auth || req.header("x-music-auth") || "").trim();
+  if (!auth) {
+    const err = new Error("Missing auth. Login first and pass auth query parameter or x-music-auth header.");
+    err.status = 401;
+    throw err;
+  }
 
-function requireLoggedSession(providerName, sessionId, session) {
-  if (session?.cookie) return;
-
-  const err = new Error(
-    `Not logged in for ${providerName}. Call /api/login/qr?provider=${providerName}&sessionId=${sessionId} first.`
-  );
-  err.status = 401;
-  throw err;
+  const session = decodeToken(auth, "auth");
+  if (providerName && session.provider !== providerName) {
+    const err = new Error("auth does not belong to this provider.");
+    err.status = 403;
+    throw err;
+  }
+  return { auth, session, authHash: tokenHash(auth) };
 }
 
 function normalizePlaySong(req, provider, search) {
@@ -118,10 +126,12 @@ app.get("/health", (req, res) => {
 app.get(["/api/login/qr", "/login/qr"], async (req, res, next) => {
   try {
     const provider = getProvider(req.query.provider);
-    const { sessionId } = getSession(req, provider.name);
+    const sessionId = createId(`${provider.name}_`);
     const result = await provider.createLogin(sessionId);
-    setSession(provider.name, sessionId, result.session);
-    res.json(result.response);
+    res.json({
+      ...publicLoginResponse(result),
+      loginToken: encodeToken("login", result.session),
+    });
   } catch (err) {
     next(err);
   }
@@ -129,15 +139,22 @@ app.get(["/api/login/qr", "/login/qr"], async (req, res, next) => {
 
 app.get(["/api/login/poll", "/login/poll"], async (req, res, next) => {
   try {
-    const provider = getProvider(req.query.provider);
-    const { sessionId, session } = getSession(req, provider.name);
-    if (!session) {
-      res.status(400).json({ error: "Missing login session. Call /api/login/qr first." });
+    const session = getLoginSession(req, req.query.provider ? String(req.query.provider).toLowerCase() : null);
+    const provider = getProvider(req.query.provider || session.provider);
+    const result = await provider.pollLogin(session);
+    const response = publicLoginResponse(result);
+    if (result.response.loggedIn) {
+      res.json({
+        ...response,
+        auth: encodeToken("auth", result.session),
+      });
       return;
     }
-    const result = await provider.pollLogin(session);
-    setSession(provider.name, sessionId, result.session);
-    res.json(result.response);
+
+    res.json({
+      ...response,
+      loginToken: encodeToken("login", result.session),
+    });
   } catch (err) {
     next(err);
   }
@@ -145,7 +162,8 @@ app.get(["/api/login/poll", "/login/poll"], async (req, res, next) => {
 
 app.get(["/api/search", "/search"], async (req, res, next) => {
   try {
-    const provider = getProvider(req.query.provider);
+    const authSession = getAuthSession(req, req.query.provider ? String(req.query.provider).toLowerCase() : null);
+    const provider = getProvider(req.query.provider || authSession.session.provider);
     const key = String(req.query.key || req.query.q || "").trim();
     if (!key) {
       res.status(400).json({ error: "Missing search key" });
@@ -154,7 +172,7 @@ app.get(["/api/search", "/search"], async (req, res, next) => {
 
     const page = numberParam(req.query.page, 1, 1, 100);
     const limit = numberParam(req.query.limit || req.query.count, 10, 1, 50);
-    const { sessionId, session } = getSession(req, provider.name);
+    const { session, authHash } = authSession;
     const result = await provider.search({ key, page, limit, session });
     const searchId = provider.createSearchId();
     const songs = result.songs.map((song, index) => ({ ...song, index }));
@@ -164,7 +182,7 @@ app.get(["/api/search", "/search"], async (req, res, next) => {
       key,
       page,
       limit,
-      sessionId,
+      authHash,
       songs,
       createdAt: Date.now(),
     });
@@ -185,16 +203,16 @@ app.get(["/api/search", "/search"], async (req, res, next) => {
 
 app.get(["/api/play", "/play"], async (req, res, next) => {
   try {
+    const authSession = getAuthSession(req, req.query.provider ? String(req.query.provider).toLowerCase() : null);
     let provider = req.query.provider ? getProvider(req.query.provider) : null;
     const search = req.query.searchId ? searches.get(String(req.query.searchId)) : null;
     if (!provider && search) provider = getProvider(search.provider);
-    if (!provider) provider = getProvider("qq");
+    if (!provider) provider = getProvider(authSession.session.provider);
 
-    const { sessionId, session } = getSession(req, provider.name);
-    requireLoggedSession(provider.name, sessionId, session);
+    const { session, authHash } = authSession;
 
-    if (search && (search.provider !== provider.name || search.sessionId !== sessionId)) {
-      const err = new Error("searchId does not belong to this provider/sessionId.");
+    if (search && (search.provider !== provider.name || search.authHash !== authHash)) {
+      const err = new Error("searchId does not belong to this provider/auth.");
       err.status = 403;
       throw err;
     }
@@ -208,7 +226,6 @@ app.get(["/api/play", "/play"], async (req, res, next) => {
 
     res.json({
       provider: provider.name,
-      sessionId,
       searchId: search?.searchId,
       index: song.index,
       ...result,
@@ -226,5 +243,4 @@ app.use((err, req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`music-api listening on http://localhost:${PORT}`);
-  console.log(`session store: ${SESSION_FILE}`);
 });
