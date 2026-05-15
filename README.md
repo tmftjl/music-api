@@ -44,7 +44,7 @@ curl "http://localhost:3000/health"
 ## 通用参数
 
 - `provider`：音乐源，支持 `qq`、`netease`，默认 `qq`
-- `sessionId`：登录会话 ID，登录后点歌可带上
+- `sessionId`：登录会话 ID，必传。建议用机器人用户 ID；也可以通过 `x-session-id` 请求头传入
 - `limit` / `count`：搜索数量，最大 50
 - `searchId` + `index`：用搜索结果里的第几首来点歌
 
@@ -53,8 +53,8 @@ curl "http://localhost:3000/health"
 获取二维码：
 
 ```bash
-curl "http://localhost:3000/api/login/qr?provider=qq"
-curl "http://localhost:3000/api/login/qr?provider=netease"
+curl "http://localhost:3000/api/login/qr?provider=qq&sessionId=用户ID"
+curl "http://localhost:3000/api/login/qr?provider=netease&sessionId=用户ID"
 ```
 
 返回 `sessionId` 和 `image`，`image` 是 base64 二维码。
@@ -69,8 +69,8 @@ curl "http://localhost:3000/api/login/poll?provider=netease&sessionId=xxx"
 ## 搜索 API
 
 ```bash
-curl "http://localhost:3000/api/search?provider=qq&key=周杰伦&limit=10"
-curl "http://localhost:3000/api/search?provider=netease&key=周杰伦&limit=10"
+curl "http://localhost:3000/api/search?provider=qq&key=周杰伦&limit=10&sessionId=用户ID"
+curl "http://localhost:3000/api/search?provider=netease&key=周杰伦&limit=10&sessionId=用户ID"
 ```
 
 返回：
@@ -87,14 +87,14 @@ curl "http://localhost:3000/api/search?provider=netease&key=周杰伦&limit=10"
 推荐用搜索结果选择第几首：
 
 ```bash
-curl "http://localhost:3000/api/play?searchId=搜索ID&index=0&quality=standard"
+curl "http://localhost:3000/api/play?searchId=搜索ID&index=0&quality=standard&sessionId=用户ID"
 ```
 
 也可以直接传 ID：
 
 ```bash
 curl "http://localhost:3000/api/play?provider=qq&songmid=QQ歌曲songmid&mediaId=mediaId&sessionId=xxx&quality=128"
-curl "http://localhost:3000/api/play?provider=netease&id=网易云歌曲id&quality=exhigh"
+curl "http://localhost:3000/api/play?provider=netease&id=网易云歌曲id&sessionId=xxx&quality=exhigh"
 ```
 
 音质参数：
@@ -123,6 +123,7 @@ module.exports = {
 
 ## 注意
 
-- 登录态和搜索结果现在保存在内存里，服务重启会丢。
+- 没有默认会话；缺少 `sessionId` 会返回 `400`。
+- 登录态持久化在 `data/sessions.json`；搜索结果只保存在内存里，服务重启会丢。
 - 播放链接可能因版权、会员、地区或接口变化为空。
 - 这些接口是模拟网页/客户端请求，适合学习和自用，不建议公开商业服务。

@@ -4,7 +4,7 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 require("dotenv").config();
 
-const { createId, numberParam } = require("./utils");
+const { numberParam } = require("./utils");
 const { SESSION_FILE, loadSessions, saveSessions } = require("./session-store");
 const qq = require("./providers/qq");
 const netease = require("./providers/netease");
@@ -33,7 +33,14 @@ function getProvider(name) {
 }
 
 function getSession(req, providerName) {
-  const sessionId = String(req.query.sessionId || req.header("x-session-id") || "default");
+  const rawSessionId = req.query.sessionId || req.header("x-session-id");
+  const sessionId = String(rawSessionId || "").trim();
+  if (!sessionId) {
+    const err = new Error("Missing sessionId. Pass sessionId query parameter or x-session-id header.");
+    err.status = 400;
+    throw err;
+  }
+
   return {
     sessionId,
     session: sessions.get(`${providerName}:${sessionId}`),
@@ -111,7 +118,7 @@ app.get("/health", (req, res) => {
 app.get(["/api/login/qr", "/login/qr"], async (req, res, next) => {
   try {
     const provider = getProvider(req.query.provider);
-    const sessionId = String(req.query.sessionId || createId(`${provider.name}_`));
+    const { sessionId } = getSession(req, provider.name);
     const result = await provider.createLogin(sessionId);
     setSession(provider.name, sessionId, result.session);
     res.json(result.response);
