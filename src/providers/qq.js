@@ -91,11 +91,11 @@ function normalizeSong(song, index) {
   return {
     index,
     provider: "qq",
-    id: String(song.songmid || song.song_mid || song.mid || ""),
-    songmid: song.songmid || song.song_mid || song.mid,
-    mediaId: song.strMediaMid || song.media_mid || song.mediaId || song.songmid,
-    songid: song.songid || song.song_id || song.id,
-    name: song.songname || song.song_name || song.name || song.title,
+    id: String(song.mid || ""),
+    songmid: song.mid,
+    mediaId: song.file?.media_mid || song.mid,
+    songid: song.id,
+    name: song.name,
     singer: singers,
     album: song.albumname || song.album_name || song.album?.name || "",
     duration: song.interval || song.song_play_time || 0,
@@ -104,7 +104,7 @@ function normalizeSong(song, index) {
 }
 
 function normalizeSearchData(data) {
-  const list = data?.data?.song?.list || data?.data?.list || data?.song?.list || data?.list || [];
+  const list = data?.req?.data?.body?.song?.list || [];
   return Array.isArray(list) ? list.map(normalizeSong) : [];
 }
 
@@ -297,34 +297,34 @@ async function pollLogin(session) {
   };
 }
 
-async function search({ key, page, limit }) {
-  const params = new URLSearchParams({
-    g_tk: "1124214810",
-    loginUin: "0",
-    hostUin: "0",
-    inCharset: "utf8",
-    outCharset: "utf-8",
-    notice: "0",
-    platform: "yqq.json",
-    needNewCode: "0",
-    format: "json",
-    ct: "24",
-    qqmusic_ver: "1298",
-    remoteplace: "txt.yqq.song",
-    t: "0",
-    aggr: "1",
-    cr: "1",
-    lossless: "0",
-    flag_qc: "0",
-    w: key,
-    n: String(limit),
-    p: String(page),
-    catZhida: "1",
+async function search({ key, page, limit, session }) {
+  const uin = session?.cookie ? extractUin(session.cookie) : "0";
+  const payload = {
+    comm: { ct: "19", cv: "1859", uin },
+    req: {
+      module: "music.search.SearchCgiService",
+      method: "DoSearchForQQMusicDesktop",
+      param: {
+        grp: 1,
+        num_per_page: limit,
+        page_num: page,
+        query: key,
+        search_type: 0,
+      },
+    },
+  };
+  const current = await fetchJson("https://u.y.qq.com/cgi-bin/musicu.fcg", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      "Content-Type": "application/json;charset=utf-8",
+      Referer: "https://y.qq.com/",
+      Origin: "https://y.qq.com",
+      Cookie: session?.cookie || "",
+    },
   });
-  const { data } = await fetchJson(`https://c.y.qq.com/soso/fcgi-bin/client_search_cp?${params.toString()}`, {
-    headers: { referer: "https://c.y.qq.com/", host: "c.y.qq.com" },
-  });
-  return { songs: normalizeSearchData(data), raw: data };
+  return { songs: normalizeSearchData(current.data), raw: current.data };
 }
 
 async function play({ song, quality, session }) {

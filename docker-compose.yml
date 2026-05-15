@@ -7,5 +7,5 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      TOKEN_SECRET: ${TOKEN_SECRET:-change-me}
+      TOKEN_SECRET: ${TOKEN_SECRET:-music-api-local-token-secret}
     restart: unless-stopped

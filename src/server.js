@@ -36,6 +36,17 @@ function publicLoginResponse(result) {
   return response;
 }
 
+function compactAuthSession(session) {
+  return {
+    version: 1,
+    provider: session.provider,
+    cookie: session.cookie,
+    uin: session.uin,
+    nickname: session.nickname,
+    loggedInAt: session.loggedInAt,
+  };
+}
+
 function getLoginSession(req, providerName) {
   const loginToken = String(req.query.loginToken || req.header("x-login-token") || "").trim();
   if (!loginToken) {
@@ -62,6 +73,11 @@ function getAuthSession(req, providerName) {
   }
 
   const session = decodeToken(auth, "auth");
+  if (session.version !== 1 || !session.provider || !session.cookie) {
+    const err = new Error("Unsupported auth. Please login again.");
+    err.status = 401;
+    throw err;
+  }
   if (providerName && session.provider !== providerName) {
     const err = new Error("auth does not belong to this provider.");
     err.status = 403;
@@ -146,7 +162,7 @@ app.get(["/api/login/poll", "/login/poll"], async (req, res, next) => {
     if (result.response.loggedIn) {
       res.json({
         ...response,
-        auth: encodeToken("auth", result.session),
+        auth: encodeToken("auth", compactAuthSession(result.session)),
       });
       return;
     }

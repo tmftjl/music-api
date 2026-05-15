@@ -9,8 +9,6 @@
 
 music-api 不保存调用方用户关系和登录态。登录成功后会返回 `auth`，由调用方自己保存，后续搜索和点歌都带上这个 `auth`。
 
-`loginToken` 和 `auth` 使用 `TOKEN_SECRET` 签名；修改 `TOKEN_SECRET` 后旧 token 会失效。
-
 ## 本地启动
 
 ```bash
