@@ -14,7 +14,14 @@ const app = express();
 app.use(cors());
 app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
-app.use(morgan("dev"));
+morgan.token("safe-url", (req) => {
+  const url = new URL(req.originalUrl || req.url || "/", "http://localhost");
+  for (const key of ["auth", "loginToken"]) {
+    if (url.searchParams.has(key)) url.searchParams.set(key, "[redacted]");
+  }
+  return `${url.pathname}${url.search}`;
+});
+app.use(morgan(":method :safe-url :status :response-time ms - :res[content-length]"));
 
 const PORT = Number(process.env.PORT || 3000);
 const providers = { qq, netease };

@@ -125,6 +125,43 @@ function joinUrl(domain, path) {
   return `${domain}${path}`;
 }
 
+function explainVkeyFailure({ quality, filename, data, info }) {
+  const result = info?.result;
+  const message = info?.msg || data?.req_1?.data?.msg || data?.req_1?.msg || data?.msg || "";
+  const code = data?.req_1?.code ?? data?.code;
+  const lowerMessage = String(message).toLowerCase();
+
+  let reason = "qq_unknown_play_error";
+  let text = "QQ 音乐未返回播放链接。";
+  if (code !== undefined && Number(code) !== 0) {
+    reason = "qq_api_error";
+    text = "QQ 音乐播放接口返回异常。";
+  } else if (result !== undefined && Number(result) !== 0) {
+    reason = "qq_song_not_playable";
+    text = "这首歌当前不可播放，可能是版权、会员、地区或账号权限限制。";
+  } else if (message && /login|cookie|auth|uin|登录|登陆/.test(lowerMessage + message)) {
+    reason = "qq_login_invalid";
+    text = "QQ 音乐登录状态可能已失效，请重新登录。";
+  } else if (info && !info.purl && !info.vkey) {
+    reason = "qq_quality_unavailable";
+    text = `QQ 音乐没有返回 ${quality} 音质的播放链接，可能是该音质不可用或账号无权限。`;
+  }
+
+  return {
+    reason,
+    message: text,
+    detail: {
+      quality,
+      filename,
+      code,
+      result,
+      msg: message,
+      hasPurl: Boolean(info?.purl),
+      hasVkey: Boolean(info?.vkey),
+    },
+  };
+}
+
 async function createLogin(sessionId) {
   const cookieMap = new Map();
   const xloginUrl =
@@ -370,15 +407,16 @@ async function play({ song, quality, session }) {
   const domain = data?.req_1?.data?.sip?.[0] || "";
   const info = data?.req_1?.data?.midurlinfo?.[0] || {};
   const url = info?.purl ? joinUrl(domain, info.purl) : "";
-  const message = info?.msg || data?.req_1?.data?.msg || data?.req_1?.msg || data?.msg;
+  const failure = url ? null : explainVkeyFailure({ quality: q, filename, data, info });
+
   return {
     provider: "qq",
     song,
     quality: q,
     url,
-    error: url
-      ? undefined
-      : `No playable QQ URL returned.${message ? ` ${message}` : ""} filename=${filename} result=${info?.result ?? ""}`,
+    error: failure?.message,
+    reason: failure?.reason,
+    detail: failure?.detail,
     raw: data,
   };
 }
