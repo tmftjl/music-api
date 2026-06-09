@@ -135,7 +135,6 @@ async function pollLogin(session) {
         sessionId: session.sessionId,
         loggedIn: false,
         status: code === 801 ? "waiting" : code === 802 ? "scanned" : "pending",
-        code,
         message: data.message,
       },
     };
@@ -157,14 +156,14 @@ async function pollLogin(session) {
     accountInfo = {};
   }
   const nextSession = { ...session, cookie, loggedInAt: Date.now() };
+  const { profile, ...publicAccountInfo } = accountInfo;
   return {
     session: { ...nextSession, ...accountInfo },
     response: {
       provider: "netease",
       sessionId: session.sessionId,
       loggedIn: true,
-      code,
-      ...accountInfo,
+      ...publicAccountInfo,
       cookie,
     },
   };

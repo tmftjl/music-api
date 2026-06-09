@@ -220,7 +220,6 @@ async function createLogin(sessionId) {
       provider: "qq",
       sessionId,
       qrsig,
-      ptqrtoken,
       image: `data:image/png;base64,${buffer.toString("base64")}`,
     },
   };
@@ -255,7 +254,6 @@ async function pollLogin(session) {
         loggedIn: false,
         status: callback.code === "65" ? "expired" : callback.code === "67" ? "scanned" : "pending",
         message: callback.message,
-        refresh: callback.code === "65",
       },
     };
   }
