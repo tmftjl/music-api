@@ -140,14 +140,31 @@ async function pollLogin(session) {
       },
     };
   }
+  let accountInfo = {};
+  try {
+    const result = await ncmRequest("/api/nuser/account/get", {}, cookie);
+    if (Number(result.data?.code) === 200) {
+      const account = result.data?.account || {};
+      const profile = result.data?.profile || {};
+      accountInfo = {
+        userId: profile.userId || account.id,
+        accountId: account.id,
+        nickname: profile.nickname,
+        profile,
+      };
+    }
+  } catch {
+    accountInfo = {};
+  }
   const nextSession = { ...session, cookie, loggedInAt: Date.now() };
   return {
-    session: nextSession,
+    session: { ...nextSession, ...accountInfo },
     response: {
       provider: "netease",
       sessionId: session.sessionId,
       loggedIn: true,
       code,
+      ...accountInfo,
       cookie,
     },
   };

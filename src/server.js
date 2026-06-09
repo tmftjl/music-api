@@ -49,7 +49,10 @@ function compactAuthSession(session) {
     provider: session.provider,
     cookie: session.cookie,
     uin: session.uin,
+    userId: session.userId,
+    accountId: session.accountId,
     nickname: session.nickname,
+    profile: session.profile,
     loggedInAt: session.loggedInAt,
   };
 }
